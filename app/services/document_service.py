@@ -11,7 +11,10 @@ from langchain_core.embeddings import Embeddings
 from app.config import Settings
 from app.services.collection_service import CollectionService
 from app.services.document_loader import DocumentLoaderFactory
-from app.services.text_splitter import TextSplitterService
+from app.services.text_splitter import (
+    ParentChildTextSplitter,
+    TextSplitterService,
+)
 from app.models.schemas import UploadResponse
 from app.utils.exceptions import FileTooLargeError
 from app.utils.logger import get_logger
@@ -22,18 +25,28 @@ UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 
 
 class DocumentService:
-    """Handle the full pipeline: save -> load -> split -> embed -> store."""
+    """Handle the full pipeline: save -> load -> split -> embed -> store.
+
+    Uses **parent-child chunking** by default:
+    - Child chunks (small, precise) are stored in the main collection
+      for vector retrieval.
+    - Parent chunks (large, context-rich) are stored in a sibling
+      ``{collection}_parents`` collection and looked up at query time
+      to provide richer context to the LLM.
+    """
 
     def __init__(
         self,
         settings: Settings,
         embeddings: Embeddings,
         text_splitter: TextSplitterService,
+        parent_child_splitter: ParentChildTextSplitter,
         collection_service: CollectionService,
     ) -> None:
         self._settings = settings
         self._embeddings = embeddings
-        self._splitter = text_splitter
+        self._flat_splitter = text_splitter
+        self._pc_splitter = parent_child_splitter
         self._collection_service = collection_service
 
     async def ingest(
@@ -58,8 +71,10 @@ class DocumentService:
             with open(file_path, "wb") as f:
                 f.write(file_bytes)
 
-            # Ensure collection exists
+            # Ensure both collections exist
             self._collection_service.ensure_exists(collection_name)
+            parent_collection = f"{collection_name}_parents"
+            self._collection_service.ensure_exists(parent_collection)
 
             # Load documents
             documents = DocumentLoaderFactory.load(file_path)
@@ -68,29 +83,48 @@ class DocumentService:
             for doc in documents:
                 doc.metadata["source"] = filename
 
-            # Split
-            chunks = self._splitter.split(documents)
+            # --- Parent-child chunking ---
+            pc_result = self._pc_splitter.split(documents)
 
-            # Store in ChromaDB
-            vectorstore = Chroma(
+            # Store child chunks in main collection (for retrieval)
+            child_store = Chroma(
                 collection_name=collection_name,
                 persist_directory=self._settings.CHROMA_PERSIST_DIR,
                 embedding_function=self._embeddings,
             )
-            vectorstore.add_documents(chunks)
+            if pc_result.child_docs:
+                child_store.add_documents(pc_result.child_docs)
+
+            # Store parent chunks in parent collection (for context lookup)
+            parent_store = Chroma(
+                collection_name=parent_collection,
+                persist_directory=self._settings.CHROMA_PERSIST_DIR,
+                embedding_function=self._embeddings,
+            )
+            if pc_result.parent_docs:
+                parent_store.add_documents(pc_result.parent_docs)
+
+            total_chunks = len(pc_result.child_docs)
+            parent_chunks = len(pc_result.parent_docs)
 
             logger.info(
-                "Ingested '%s' -> %d chunks into collection '%s'",
+                "Ingested '%s' -> %d child chunks + %d parent chunks "
+                "into collection '%s'",
                 filename,
-                len(chunks),
+                total_chunks,
+                parent_chunks,
                 collection_name,
             )
 
             return UploadResponse(
                 filename=filename,
                 collection_name=collection_name,
-                chunks_count=len(chunks),
-                message=f"Successfully ingested {filename} ({len(chunks)} chunks)",
+                chunks_count=total_chunks,
+                message=(
+                    f"Successfully ingested {filename} "
+                    f"({parent_chunks} parent chunks, "
+                    f"{total_chunks} child chunks)"
+                ),
             )
         finally:
             # Cleanup temp file
@@ -117,21 +151,46 @@ class DocumentService:
         return list(sources.values())
 
     def delete_document(self, collection_name: str, doc_source: str) -> int:
-        """Delete all chunks belonging to a specific source document."""
+        """Delete all chunks belonging to a specific source document.
+
+        Removes from both child (main) and parent collections.
+        """
         self._collection_service.get(collection_name)  # will raise if not found
-        vectorstore = Chroma(
+
+        deleted = 0
+
+        # Delete from child collection
+        child_store = Chroma(
             collection_name=collection_name,
             persist_directory=self._settings.CHROMA_PERSIST_DIR,
             embedding_function=self._embeddings,
         )
-        result = vectorstore.get(where={"source": doc_source})
+        result = child_store.get(where={"source": doc_source})
         ids_to_delete = result.get("ids") or []
         if ids_to_delete:
-            vectorstore.delete(ids=ids_to_delete)
+            child_store.delete(ids=ids_to_delete)
+            deleted += len(ids_to_delete)
+
+        # Delete from parent collection
+        parent_collection = f"{collection_name}_parents"
+        try:
+            parent_store = Chroma(
+                collection_name=parent_collection,
+                persist_directory=self._settings.CHROMA_PERSIST_DIR,
+                embedding_function=self._embeddings,
+            )
+            p_result = parent_store.get(where={"source": doc_source})
+            p_ids = p_result.get("ids") or []
+            if p_ids:
+                parent_store.delete(ids=p_ids)
+                deleted += len(p_ids)
+        except Exception as exc:
+            logger.warning("Could not clean parent collection: %s", exc)
+
         logger.info(
-            "Deleted %d chunk(s) for source '%s' from '%s'",
-            len(ids_to_delete),
+            "Deleted %d chunk(s) for source '%s' from '%s' (incl. parents)",
+            deleted,
             doc_source,
             collection_name,
         )
-        return len(ids_to_delete)
+        return deleted

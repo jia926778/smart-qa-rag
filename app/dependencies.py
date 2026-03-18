@@ -10,8 +10,12 @@ from app.services.document_service import DocumentService
 from app.services.embedding_engine import EmbeddingEngine
 from app.services.prompt_builder import PromptBuilder
 from app.services.qa_service import QAService
+from app.services.reranker import BaseReranker, create_reranker
 from app.services.retriever import SmartRetriever
-from app.services.text_splitter import TextSplitterService
+from app.services.text_splitter import ParentChildTextSplitter, TextSplitterService
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -45,8 +49,37 @@ def get_text_splitter() -> TextSplitterService:
 
 
 @lru_cache()
+def get_parent_child_splitter() -> ParentChildTextSplitter:
+    return ParentChildTextSplitter(get_settings())
+
+
+@lru_cache()
+def get_reranker() -> BaseReranker | None:
+    """Build the reranker.  Returns None if reranking is disabled."""
+    s = get_settings()
+    if not s.RERANKER_ENABLED:
+        return None
+    try:
+        return create_reranker(
+            settings=s,
+            embeddings=get_embedding_engine().embeddings,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to initialise reranker (%s), disabling: %s",
+            s.RERANKER_PROVIDER,
+            exc,
+        )
+        return None
+
+
+@lru_cache()
 def get_retriever() -> SmartRetriever:
-    return SmartRetriever(get_settings(), get_embedding_engine().embeddings)
+    return SmartRetriever(
+        settings=get_settings(),
+        embeddings=get_embedding_engine().embeddings,
+        reranker=get_reranker(),
+    )
 
 
 @lru_cache()
@@ -69,5 +102,6 @@ def get_document_service() -> DocumentService:
         settings=get_settings(),
         embeddings=get_embedding_engine().embeddings,
         text_splitter=get_text_splitter(),
+        parent_child_splitter=get_parent_child_splitter(),
         collection_service=get_collection_service(),
     )

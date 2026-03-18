@@ -225,28 +225,69 @@ class DocumentLoaderFactory:
         return loader_cls(file_path)
 ```
 
-#### 4.1.4 分块策略
+#### 4.1.4 分块策略：父子分块（Parent-Child Chunking）
 
-采用 LangChain 的 `RecursiveCharacterTextSplitter`，该分块器按照自然文本边界递归切分，优先在段落、句子、单词边界处断开，保证片段语义的完整性。
+系统采用**两层层级分块**策略，取代传统的扁平分块方式，以同时兼顾**检索精度**与**上下文完整性**：
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `chunk_size` | 500 | 每个片段的最大字符数。中文文本 500 字约对应 1-2 个自然段落，兼顾语义完整性与检索精度。 |
-| `chunk_overlap` | 80 | 相邻片段的重叠字符数。确保跨片段的语义信息不会因切分丢失。 |
-| `separators` | `["\n\n", "\n", "。", ".", " ", ""]` | 按优先级递归尝试的分隔符列表，优先在段落和句子边界切分。 |
+**核心思想：**
+- **子块（Child Chunk）** — 较小的文本片段（默认 300 字），用于向量化和语义检索。小粒度使得匹配更精确。
+- **父块（Parent Chunk）** — 较大的文本片段（默认 1500 字），保留完整的段落上下文。当子块命中时，系统回溯到对应的父块作为 LLM 的输入上下文。
+
+**分块参数：**
+
+| 层级 | 参数 | 默认值 | 说明 |
+|------|------|--------|------|
+| 父块 | `PARENT_CHUNK_SIZE` | 1500 | 父级片段最大字符数，保留 3-5 个自然段落的完整语境 |
+| 父块 | `PARENT_CHUNK_OVERLAP` | 200 | 父块间重叠字符数 |
+| 子块 | `CHILD_CHUNK_SIZE` | 300 | 子级片段最大字符数，精确匹配用户问题意图 |
+| 子块 | `CHILD_CHUNK_OVERLAP` | 50 | 子块间重叠字符数 |
+| 通用 | `separators` | `["\n\n", "\n", "。", "！", "？", "；", ". ", " ", ""]` | 中英文混合分隔符 |
+
+**存储策略：**
+- 子块存储在主 Collection（如 `tech_docs`）中，用于向量检索
+- 父块存储在对应的父级 Collection（如 `tech_docs_parents`）中，用于上下文回溯
+- 子块元数据中包含 `parent_id` 字段，建立父子关联
+
+```python
+class ParentChildTextSplitter:
+    def split(self, documents: List[Document]) -> ParentChildResult:
+        # Stage 1: Split into large parent chunks
+        parent_chunks = self._parent_splitter.split_documents(documents)
+        for parent in parent_chunks:
+            parent_id = uuid.uuid4().hex
+            parent.metadata["parent_id"] = parent_id
+            parent.metadata["chunk_type"] = "parent"
+
+            # Stage 2: Split each parent into smaller children
+            children = self._child_splitter.split_documents([parent])
+            for child in children:
+                child.metadata["parent_id"] = parent_id
+                child.metadata["chunk_type"] = "child"
+        return ParentChildResult(parent_docs, child_docs, parent_map)
+```
 
 #### 4.1.5 元数据保留
 
 每个文档片段（Document）附带以下元数据：
 
 ```python
+# 子块元数据
 {
     "source": "技术手册v2.pdf",       # 原始文件名
     "page": 12,                       # 所在页码（PDF适用）
-    "chunk_index": 3,                 # 片段在文档内的序号
+    "chunk_type": "child",            # 片段类型
+    "parent_id": "a3f8c1...",         # 父块唯一标识
+    "child_index": 3,                 # 子块在父块内的序号
     "file_type": "pdf",               # 文件类型
-    "upload_time": "2026-03-18T10:30:00Z",  # 上传时间
-    "collection_name": "tech_docs"    # 所属知识库
+}
+
+# 父块元数据
+{
+    "source": "技术手册v2.pdf",
+    "page": 12,
+    "chunk_type": "parent",
+    "parent_id": "a3f8c1...",         # 自身标识
+    "parent_index": 5,                # 父块在文档中的序号
 }
 ```
 
@@ -323,52 +364,88 @@ class CollectionService:
         self.client.delete_collection(name=name)
 ```
 
-#### 4.2.4 向量写入流程
+#### 4.2.4 向量写入流程（父子分块模式）
 
 文档入库的完整流水线如下：
 
 1. 接收上传文件并保存到临时目录。
 2. 根据文件扩展名选择加载器，提取文本内容。
-3. 使用 `RecursiveCharacterTextSplitter` 按配置参数分块。
-4. 为每个片段附加元数据（来源文件名、页码、分块序号等）。
-5. 调用 Embedding 模型批量生成向量。
-6. 将向量、文本片段和元数据写入目标 ChromaDB Collection。
+3. 使用 `ParentChildTextSplitter` 进行两层分块：
+   - 第一层：按 `PARENT_CHUNK_SIZE` 切分为大的父块
+   - 第二层：每个父块按 `CHILD_CHUNK_SIZE` 切分为小的子块
+4. 为每个片段附加元数据（来源、页码、`parent_id`、`chunk_type` 等）。
+5. 子块写入主 Collection（用于向量检索）。
+6. 父块写入 `{collection}_parents` Collection（用于上下文回溯）。
 7. 清理临时文件，返回入库统计信息。
 
 ### 4.3 检索增强生成模块
 
 #### 4.3.1 模块职责
 
-接收用户的自然语言问题，从向量数据库中检索最相关的文档片段，结合对话历史构建 Prompt，调用大语言模型生成回答。
+接收用户的自然语言问题，通过多阶段检索管道从向量数据库中获取最相关的文档片段，结合对话历史构建 Prompt，调用大语言模型生成回答。
 
-#### 4.3.2 检索策略
+#### 4.3.2 多阶段检索策略
 
-系统采用两阶段检索策略：
+系统采用**三阶段**检索管道，逐步提升结果质量：
 
-**第一阶段 — 向量相似度检索（Recall）：**
+```mermaid
+flowchart LR
+    Q[用户问题] --> S1[Stage 1\n子块向量检索\nInitial K=20]
+    S1 --> S2[Stage 2\n父块上下文扩展\n去重合并]
+    S2 --> S3[Stage 3\n重排序 Rerank\nTop N=4]
+    S3 --> R[最终上下文\n送入LLM]
+```
 
-使用 ChromaDB 的相似度搜索，获取与用户问题语义最相近的 Top-K 个文档片段。默认 `k=6`，使用余弦相似度（cosine similarity）作为距离度量。
+**Stage 1 — 子块向量检索（Over-Retrieval）：**
 
-**第二阶段 — 相关性过滤（Rerank）：**
+使用 ChromaDB 在子块集合中进行语义搜索，过度检索 `RETRIEVAL_INITIAL_K=20` 个子块。子块粒度小（300字），能精确匹配用户问题的关键语义。使用余弦相似度并设置阈值（`score_threshold=0.35`）过滤低相关性结果。
 
-对第一阶段返回的结果进行相关性评分过滤，丢弃相似度低于阈值（默认 `score_threshold=0.3`）的片段，最终保留 3-5 个高质量上下文片段。
+**Stage 2 — 父块上下文扩展（Parent Expansion）：**
+
+对 Stage 1 匹配到的子块，通过 `parent_id` 回溯到对应的父块。父块粒度大（1500字），包含完整的段落上下文，为 LLM 提供更充分的推理依据。同一父块被多个子块命中时只保留一份（去重），并记录命中子块数量。
+
+**Stage 3 — 重排序（Reranking）：**
+
+对 Stage 2 的父块集合使用 Cross-Encoder 模型进行精排，返回最终 `RERANKER_TOP_N=4` 个最高相关性的文档。
+
+| 重排策略 | 模型 | 特点 |
+|---------|------|------|
+| `cross-encoder` (默认) | `BAAI/bge-reranker-v2-m3` | 联合编码 (query, doc)，精度最高，适合本地部署 |
+| `llm` | 使用已配置的 LLM | 无需额外模型，通过 prompt 让 LLM 打分（0-10） |
+| `cosine` | 使用已加载的 Embedding 模型 | 轻量回退方案，重新计算余弦相似度 |
 
 ```python
 # app/services/retriever.py
 
 class SmartRetriever:
-    def __init__(self, vector_store: Chroma, config: Settings):
-        self.retriever = vector_store.as_retriever(
-            search_type="similarity_score_threshold",
-            search_kwargs={
-                "k": config.RETRIEVAL_TOP_K,
-                "score_threshold": config.RETRIEVAL_SCORE_THRESHOLD,
-            },
-        )
+    def retrieve(self, query: str, collection_name: str) -> List[Document]:
+        # Stage 1: Over-retrieve child chunks
+        child_docs = self._retrieve_children(query, collection_name, score_threshold)
 
-    def retrieve(self, query: str) -> list[Document]:
-        """检索与查询最相关的文档片段"""
-        return self.retriever.invoke(query)
+        # Stage 2: Expand to parent chunks (deduplicated)
+        parent_docs = self._expand_to_parents(child_docs, collection_name)
+
+        # Stage 3: Rerank with cross-encoder
+        if self._reranker and self._settings.RERANKER_ENABLED:
+            final_docs = self._reranker.rerank(query, parent_docs, top_n)
+        else:
+            final_docs = parent_docs[:top_k]
+
+        return final_docs
+```
+
+```python
+# app/services/reranker.py
+
+class CrossEncoderReranker(BaseReranker):
+    """Cross-encoder jointly encodes (query, doc) pairs for precise relevance scoring."""
+
+    def rerank(self, query: str, documents: List[Document], top_n: int) -> List[Document]:
+        pairs = [(query, doc.page_content) for doc in documents]
+        scores = self._model.predict(pairs)
+        # Sort by score descending, return top_n
+        scored = sorted(zip(scores, documents), key=lambda x: x[0], reverse=True)
+        return [doc for _, doc in scored[:top_n]]
 ```
 
 #### 4.3.3 Prompt 模板
@@ -820,7 +897,8 @@ smart-qa-rag/
 │   │   ├── text_splitter.py           # 文本分块服务
 │   │   ├── embedding_engine.py        # 向量化引擎
 │   │   ├── collection_service.py      # 知识库管理服务
-│   │   ├── retriever.py               # 检索器
+│   │   ├── retriever.py               # 多阶段检索器（子块检索+父块扩展+重排序）
+│   │   ├── reranker.py               # 重排序服务（CrossEncoder/LLM/Cosine）
 │   │   ├── prompt_builder.py          # Prompt 构建器
 │   │   ├── qa_service.py              # 问答服务（RAG 核心链路）
 │   │   └── document_service.py        # 文档处理服务（入库流水线）
