@@ -104,39 +104,69 @@
 ```mermaid
 graph TB
     subgraph 用户层
-        A[Web 浏览器] -->|HTTP/WebSocket| B[Nginx 反向代理]
+        A[Web 浏览器] -->|HTTP| B[FastAPI 应用服务]
     end
 
     subgraph API层
-        B --> C[FastAPI 应用服务]
-        C --> D[路由层 Routers]
-        D --> E[请求验证 Pydantic Models]
+        B --> C[路由层 Routers]
+        C --> D[请求验证 Pydantic Models]
+    end
+
+    subgraph LangGraph 多Agent管道
+        D --> QA[QAService]
+        QA --> G1[QueryAnalyzer Agent<br/>意图分类 · 查询改写 · 多查询生成]
+        G1 --> G2[RetrieverAgent<br/>多查询检索 · RRF融合 · 父子块扩展]
+        G2 --> G3[AnswerGenerator Agent<br/>意图适配Prompt · 上下文生成]
+        G3 --> G4[QualityEvaluator Agent<br/>幻觉检测 · 充分性评估]
+        G4 -->|accept| OUT[返回结果]
+        G4 -->|retry| G1
     end
 
     subgraph 业务逻辑层
-        E --> F[文档处理服务 DocumentService]
-        E --> G[问答服务 QAService]
-        E --> H[知识库管理服务 CollectionService]
+        D --> F[文档处理服务 DocumentService]
+        D --> H[知识库管理服务 CollectionService]
 
         F --> I[文档加载器 DocumentLoader]
-        F --> J[文本分块器 TextSplitter]
+        F --> J[父子分块器 ParentChildSplitter]
         F --> K[向量化引擎 EmbeddingEngine]
 
-        G --> L[检索器 Retriever]
-        G --> M[Prompt 构建器 PromptBuilder]
-        G --> N[LLM 调用链 LLMChain]
+        G2 --> L[SmartRetriever<br/>子块检索 · 父块扩展 · Reranker]
     end
 
     subgraph 数据层
-        K --> O[(ChromaDB 向量数据库)]
+        K --> O[(ChromaDB<br/>子块集合 + 父块集合)]
         L --> O
-        N --> P[OpenAI API / 本地LLM]
+        G1 & G3 & G4 --> P[OpenAI API / 本地LLM]
         K --> P
     end
 
     subgraph 前端
-        Q[Vue.js / 静态HTML] --> A
+        Q[静态HTML + JS] --> A
     end
+```
+
+### 3.1.1 LangGraph Agent 管道详细流程
+
+```mermaid
+stateDiagram-v2
+    [*] --> QueryAnalyzer
+    QueryAnalyzer --> RetrieverAgent: sub_queries + rewritten_query
+    RetrieverAgent --> AnswerGenerator: retrieved_docs (RRF merged)
+    AnswerGenerator --> QualityEvaluator: answer + sources
+    QualityEvaluator --> [*]: decision=accept
+    QualityEvaluator --> QueryAnalyzer: decision=retry (max 2次)
+
+    state QueryAnalyzer {
+        意图分类 --> 查询改写
+        查询改写 --> 多查询生成
+    }
+    state RetrieverAgent {
+        多查询并行检索 --> RRF融合去重
+    }
+    state QualityEvaluator {
+        幻觉检测 --> 充分性评估
+        充分性评估 --> 置信度打分
+    }
 ```
 
 ### 3.2 分层架构说明
@@ -883,6 +913,14 @@ smart-qa-rag/
 │   ├── main.py                        # FastAPI 应用入口，注册路由和中间件
 │   ├── config.py                      # 全局配置（Settings，环境变量加载）
 │   ├── dependencies.py                # FastAPI 依赖注入（数据库客户端、服务实例）
+│   ├── agents/
+│   │   ├── __init__.py
+│   │   ├── state.py                   # LangGraph 共享状态定义
+│   │   ├── query_analyzer.py          # 查询分析Agent（意图分类·改写·多查询）
+│   │   ├── retriever_agent.py         # 检索Agent（多查询·RRF融合）
+│   │   ├── generator.py              # 回答生成Agent（意图适配·上下文生成）
+│   │   ├── evaluator.py              # 质量评估Agent（幻觉检测·重试决策）
+│   │   └── graph.py                  # LangGraph 工作流组装
 │   ├── routers/
 │   │   ├── __init__.py
 │   │   ├── qa.py                      # 问答路由
