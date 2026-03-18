@@ -8,7 +8,6 @@ from app.config import Settings, settings
 from app.services.collection_service import CollectionService
 from app.services.document_service import DocumentService
 from app.services.embedding_engine import EmbeddingEngine
-from app.services.prompt_builder import PromptBuilder
 from app.services.qa_service import QAService
 from app.services.reranker import BaseReranker, create_reranker
 from app.services.retriever import SmartRetriever
@@ -83,16 +82,11 @@ def get_retriever() -> SmartRetriever:
 
 
 @lru_cache()
-def get_prompt_builder() -> PromptBuilder:
-    return PromptBuilder()
-
-
-@lru_cache()
 def get_qa_service() -> QAService:
+    """Build QAService which internally constructs the LangGraph pipeline."""
     return QAService(
         settings=get_settings(),
         retriever=get_retriever(),
-        prompt_builder=get_prompt_builder(),
     )
 
 

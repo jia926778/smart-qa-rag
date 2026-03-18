@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"
     RERANKER_TOP_N: int = 4  # Final number of docs after reranking
 
+    # --- LangGraph Agent Pipeline ----------------------------------------------
+    AGENT_MAX_RETRIES: int = 2  # Max quality-check retries before accepting
+
     # --- Upload ----------------------------------------------------------------
     MAX_UPLOAD_SIZE_MB: int = 20
 
