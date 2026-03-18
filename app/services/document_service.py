@@ -9,8 +9,10 @@ from langchain_chroma import Chroma
 from langchain_core.embeddings import Embeddings
 
 from app.config import Settings
+from app.services.bm25_retriever import BM25RetrieverService
 from app.services.collection_service import CollectionService
 from app.services.document_loader import DocumentLoaderFactory
+from app.services.sql_store import SQLStore
 from app.services.text_splitter import (
     ParentChildTextSplitter,
     TextSplitterService,
@@ -33,6 +35,11 @@ class DocumentService:
     - Parent chunks (large, context-rich) are stored in a sibling
       ``{collection}_parents`` collection and looked up at query time
       to provide richer context to the LLM.
+
+    Additional pipelines:
+    - **BM25 index**: child chunks are indexed for keyword search.
+    - **SQL store**: Excel/CSV files are auto-ingested into SQLite for
+      Text-to-SQL queries.
     """
 
     def __init__(
@@ -42,12 +49,16 @@ class DocumentService:
         text_splitter: TextSplitterService,
         parent_child_splitter: ParentChildTextSplitter,
         collection_service: CollectionService,
+        bm25_service: BM25RetrieverService | None = None,
+        sql_store: SQLStore | None = None,
     ) -> None:
         self._settings = settings
         self._embeddings = embeddings
         self._flat_splitter = text_splitter
         self._pc_splitter = parent_child_splitter
         self._collection_service = collection_service
+        self._bm25 = bm25_service
+        self._sql_store = sql_store
 
     async def ingest(
         self,
@@ -107,6 +118,37 @@ class DocumentService:
             total_chunks = len(pc_result.child_docs)
             parent_chunks = len(pc_result.parent_docs)
 
+            # --- BM25 index: add child chunks for keyword search ---
+            if self._bm25 and pc_result.child_docs:
+                try:
+                    self._bm25.add_documents(collection_name, pc_result.child_docs)
+                    logger.info("BM25: indexed %d child chunks for '%s'", total_chunks, filename)
+                except Exception as exc:
+                    logger.warning("BM25 indexing failed for '%s': %s", filename, exc)
+
+            # --- SQL store: auto-ingest structured data from Excel/CSV ---
+            sql_tables_ingested = 0
+            ext = Path(filename).suffix.lower()
+            if self._sql_store and ext in (".xlsx", ".xls", ".csv", ".tsv"):
+                try:
+                    if ext in (".xlsx", ".xls"):
+                        tables = self._sql_store.ingest_from_excel(
+                            collection_name, file_path, source_file=filename,
+                        )
+                        sql_tables_ingested = len(tables)
+                    elif ext in (".csv", ".tsv"):
+                        result = self._sql_store.ingest_from_csv(
+                            collection_name, file_path, source_file=filename,
+                        )
+                        sql_tables_ingested = 1 if result else 0
+                    if sql_tables_ingested:
+                        logger.info(
+                            "SQL store: ingested %d table(s) from '%s'",
+                            sql_tables_ingested, filename,
+                        )
+                except Exception as exc:
+                    logger.warning("SQL ingestion failed for '%s': %s", filename, exc)
+
             logger.info(
                 "Ingested '%s' -> %d child chunks + %d parent chunks "
                 "into collection '%s'",
@@ -116,15 +158,19 @@ class DocumentService:
                 collection_name,
             )
 
+            msg = (
+                    f"Successfully ingested {filename} "
+                    f"({parent_chunks} parent chunks, "
+                    f"{total_chunks} child chunks)"
+                )
+            if sql_tables_ingested:
+                msg += f" + {sql_tables_ingested} SQL table(s)"
+
             return UploadResponse(
                 filename=filename,
                 collection_name=collection_name,
                 chunks_count=total_chunks,
-                message=(
-                    f"Successfully ingested {filename} "
-                    f"({parent_chunks} parent chunks, "
-                    f"{total_chunks} child chunks)"
-                ),
+                message=msg,
             )
         finally:
             # Cleanup temp file
@@ -186,6 +232,20 @@ class DocumentService:
                 deleted += len(p_ids)
         except Exception as exc:
             logger.warning("Could not clean parent collection: %s", exc)
+
+        # Delete from BM25 index
+        if self._bm25:
+            try:
+                self._bm25.delete_source(collection_name, doc_source)
+            except Exception as exc:
+                logger.warning("BM25 cleanup failed: %s", exc)
+
+        # Delete from SQL store
+        if self._sql_store:
+            try:
+                self._sql_store.delete_source(collection_name, doc_source)
+            except Exception as exc:
+                logger.warning("SQL store cleanup failed: %s", exc)
 
         logger.info(
             "Deleted %d chunk(s) for source '%s' from '%s' (incl. parents)",

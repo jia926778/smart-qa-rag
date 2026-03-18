@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     RERANKER_MODEL: str = "BAAI/bge-reranker-v2-m3"
     RERANKER_TOP_N: int = 4  # Final number of docs after reranking
 
+    # --- BM25 Keyword Retrieval ------------------------------------------------
+    BM25_ENABLED: bool = True
+    BM25_TOP_K: int = 10  # Number of BM25 results to merge via RRF
+
+    # --- Text-to-SQL -----------------------------------------------------------
+    TEXT_TO_SQL_ENABLED: bool = True
+
     # --- LangGraph Agent Pipeline ----------------------------------------------
     AGENT_MAX_RETRIES: int = 2  # Max quality-check retries before accepting
 

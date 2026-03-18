@@ -28,11 +28,12 @@ def _replace(a: Any, b: Any) -> Any:
 
 class QueryAnalysis(TypedDict, total=False):
     """Output of the Query Analyzer agent."""
-    intent: str                         # e.g. "factual", "comparison", "summary", "how-to"
+    intent: str                         # e.g. "factual", "comparison", "summary", "how-to", "data_query"
     rewritten_query: str                # Improved version of the original question
     sub_queries: List[str]              # Multiple search queries from different angles
     language: str                       # Detected language ("zh", "en", "mixed")
     complexity: str                     # "simple", "moderate", "complex"
+    retrieval_strategy: str             # "hybrid" (vector+bm25), "vector", "bm25", "sql", "hybrid+sql"
 
 
 class EvaluationResult(TypedDict, total=False):
@@ -62,6 +63,10 @@ class GraphState(TypedDict, total=False):
     # --- Retriever output ---
     retrieved_docs: Annotated[List[Document], _replace]
     retrieval_queries_used: Annotated[List[str], _replace]
+
+    # --- SQL Agent output ---
+    sql_result: Annotated[Optional[Dict[str, Any]], _replace]
+    sql_query: Annotated[Optional[str], _replace]
 
     # --- Generator output ---
     answer: Annotated[str, _replace]

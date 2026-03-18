@@ -28,6 +28,7 @@ _INTENT_INSTRUCTIONS = {
     "how-to": "请给出清晰的步骤说明，使用编号列表。",
     "definition": "请先给出简明定义，再展开解释。",
     "opinion": "请基于参考资料给出客观分析，说明不同观点。",
+    "data_query": "请基于查询到的数据给出准确的数据分析回答，突出关键数字。",
 }
 
 _SYSTEM_PROMPT = """\
@@ -70,6 +71,7 @@ def build_generator_agent(settings: Settings):
         chat_history = state.get("chat_history", [])
         retry_count = state.get("retry_count", 0)
         evaluation = state.get("evaluation", {})
+        sql_result = state.get("sql_result")
 
         intent = analysis.get("intent", "factual")
         complexity = analysis.get("complexity", "simple")
@@ -111,6 +113,19 @@ def build_generator_agent(settings: Settings):
             messages.append({
                 "role": "system",
                 "content": f"以下是检索到的 {len(docs)} 条参考资料：\n\n{context_text}",
+            })
+
+        # Inject SQL query results if available
+        if sql_result and sql_result.get("formatted_answer"):
+            sql_context = (
+                f"以下是通过数据库查询获得的结构化数据结果：\n\n"
+                f"SQL查询: {sql_result.get('query', 'N/A')}\n"
+                f"查询结果 ({sql_result.get('row_count', 0)} 行):\n"
+                f"{sql_result['formatted_answer']}"
+            )
+            messages.append({
+                "role": "system",
+                "content": sql_context,
             })
 
         # Chat history

@@ -16,6 +16,7 @@ from app.agents.state import GraphState
 from app.config import Settings
 from app.models.schemas import AskRequest, AskResponse, SourceInfo
 from app.services.retriever import SmartRetriever
+from app.services.sql_store import SQLStore
 from app.utils.exceptions import LLMError
 from app.utils.logger import get_logger
 
@@ -29,9 +30,12 @@ class QAService:
         self,
         settings: Settings,
         retriever: SmartRetriever,
+        sql_store: SQLStore | None = None,
     ) -> None:
         self._settings = settings
-        self._graph = build_rag_graph(settings=settings, retriever=retriever)
+        self._graph = build_rag_graph(
+            settings=settings, retriever=retriever, sql_store=sql_store,
+        )
 
     async def ask(self, request: AskRequest) -> AskResponse:
         start = time.perf_counter()
