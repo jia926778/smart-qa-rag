@@ -56,8 +56,16 @@ class Settings(BaseSettings):
     # --- LangGraph Agent Pipeline ----------------------------------------------
     AGENT_MAX_RETRIES: int = 2  # Max quality-check retries before accepting
 
+    # --- OCR (pytesseract) -----------------------------------------------------
+    OCR_ENABLED: bool = True
+    OCR_LANGUAGE: str = "chi_sim+eng"  # Tesseract language codes
+
+    # --- Audio/Video Transcription (Whisper) -----------------------------------
+    WHISPER_ENABLED: bool = True
+    WHISPER_MODEL: str = "base"  # tiny, base, small, medium, large
+
     # --- Upload ----------------------------------------------------------------
-    MAX_UPLOAD_SIZE_MB: int = 20
+    MAX_UPLOAD_SIZE_MB: int = 50  # Increased for audio/video files
 
     # --- Logging ---------------------------------------------------------------
     LOG_LEVEL: str = "INFO"

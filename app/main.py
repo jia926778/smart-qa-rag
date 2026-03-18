@@ -43,6 +43,14 @@ def create_app() -> FastAPI:
     async def health_check():
         return {"status": "ok"}
 
+    @app.get("/api/v1/supported-formats", tags=["System"])
+    async def supported_formats():
+        from app.services.document_loader import DocumentLoaderFactory
+        return {
+            "extensions": DocumentLoaderFactory.supported_extensions(),
+            "categories": DocumentLoaderFactory.supported_categories(),
+        }
+
     # --- Exception handlers ---------------------------------------------------
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException):
