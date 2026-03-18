@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-qa-rag"
+version = "1.0.0"
+description = "Intelligent Q&A system powered by RAG (Retrieval-Augmented Generation)"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Smart QA Team"},
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "python-multipart>=0.0.20",
+    "langchain>=0.3",
+    "langchain-openai>=0.3",
+    "langchain-chroma>=0.2",
+    "langchain-community>=0.3",
+    "langchain-text-splitters>=0.3",
+    "chromadb>=0.6",
+    "openai>=1.50",
+    "tiktoken>=0.8",
+    "pypdf>=5.0",
+    "docx2txt>=0.8",
+    "unstructured>=0.16",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.25",
+    "httpx>=0.28",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
