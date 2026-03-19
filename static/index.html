@@ -8,6 +8,9 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
+  <!-- 通知容器 -->
+  <div id="notificationContainer" class="notification-container"></div>
+  
   <div class="layout">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
@@ -35,10 +38,11 @@
       <div class="sidebar-section">
         <label class="section-label">文档上传</label>
         <div class="upload-area" id="uploadArea">
-          <input type="file" id="fileInput" accept=".pdf,.txt,.docx,.md,.xlsx,.xls,.csv,.pptx,.html,.htm,.json,.xml,.yaml,.yml,.log,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.mp3,.wav,.m4a,.mp4,.webm,.flac,.ogg" hidden />
+          <input type="file" id="fileInput" accept=".pdf,.txt,.docx,.md,.xlsx,.xls,.csv,.pptx,.html,.htm,.json,.xml,.yaml,.yml,.log,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.mp3,.wav,.m4a,.mp4,.webm,.flac,.ogg" multiple hidden />
           <p>点击或拖拽文件至此</p>
           <span class="upload-hint">支持 PDF · Word · Excel · PPT · Markdown · HTML · 图片OCR · 音视频转写</span>
         </div>
+        <div id="uploadProgress" class="upload-progress"></div>
         <div id="uploadStatus" class="upload-status"></div>
       </div>
 
@@ -57,6 +61,11 @@
         <button class="btn-toggle-sidebar" id="btnToggleSidebar">☰</button>
         <h3>智能问答</h3>
         <span id="currentCollection" class="badge">default</span>
+        <div class="header-actions">
+          <button id="btnToggleTheme" class="btn btn-icon" title="切换主题">🌙</button>
+          <button id="btnExportChat" class="btn btn-icon" title="导出对话">📥</button>
+          <button id="btnClearChat" class="btn btn-icon btn-danger-icon" title="清空对话">🗑️</button>
+        </div>
       </header>
 
       <div class="messages" id="messages">

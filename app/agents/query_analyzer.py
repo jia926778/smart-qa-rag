@@ -1,9 +1,10 @@
-"""Query Analyzer Agent — first node in the RAG graph.
+"""
+查询分析器智能体 — RAG 图的第一个节点
 
-Responsibilities:
-  1. Classify user intent (factual / comparison / summary / how-to).
-  2. Rewrite the question for better retrieval.
-  3. Generate 2-3 sub-queries from different angles to improve recall.
+职责：
+  1. 分类用户意图（事实查询 / 比较 / 总结 / 操作指南）。
+  2. 重写问题以获得更好的检索效果。
+  3. 从不同角度生成 2-3 个子查询以提高召回率。
 """
 
 from __future__ import annotations
@@ -17,8 +18,10 @@ from app.agents.state import GraphState, QueryAnalysis
 from app.config import Settings
 from app.utils.logger import get_logger
 
+# 初始化日志记录器
 logger = get_logger(__name__)
 
+# 查询分析提示词模板
 _ANALYSIS_PROMPT = """\
 You are a query analysis expert for a RAG system.  Analyze the user's \
 question and return a JSON object with exactly these fields:
@@ -59,8 +62,17 @@ User question: {question}
 
 
 def build_query_analyzer(settings: Settings):
-    """Return a LangGraph node function."""
+    """
+    构建查询分析器节点函数
 
+    Args:
+        settings: 应用配置实例
+
+    Returns:
+        Callable: LangGraph 节点函数
+    """
+
+    # 配置 LLM 参数
     kwargs: Dict[str, Any] = {
         "model": settings.LLM_MODEL,
         "temperature": 0,
@@ -72,9 +84,19 @@ def build_query_analyzer(settings: Settings):
     llm = ChatOpenAI(**kwargs)
 
     async def query_analyzer_node(state: GraphState) -> Dict[str, Any]:
+        """
+        查询分析器节点函数
+
+        Args:
+            state: 图状态
+
+        Returns:
+            Dict[str, Any]: 包含查询分析结果的字典
+        """
         question = state["question"]
         history = state.get("chat_history", [])
 
+        # 构建聊天历史文本
         history_text = ""
         if history:
             for msg in history[-6:]:
@@ -84,23 +106,25 @@ def build_query_analyzer(settings: Settings):
         if not history_text:
             history_text = "(no prior conversation)"
 
+        # 格式化提示词
         prompt = _ANALYSIS_PROMPT.format(question=question, history=history_text)
 
         try:
+            # 调用 LLM 进行查询分析
             response = await llm.ainvoke(prompt)
             raw = response.content.strip()
-            # Strip markdown fences if present
+            # 去除 markdown 代码块标记（如果存在）
             if raw.startswith("```"):
                 raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
             analysis: QueryAnalysis = json.loads(raw)
 
-            # Ensure sub_queries always includes the rewritten query
+            # 确保子查询列表包含重写后的查询
             sub_queries = analysis.get("sub_queries", [])
             rewritten = analysis.get("rewritten_query", question)
             if rewritten not in sub_queries:
                 sub_queries.insert(0, rewritten)
-            analysis["sub_queries"] = sub_queries[:4]  # cap at 4
+            analysis["sub_queries"] = sub_queries[:4]  # 限制最多 4 个子查询
             analysis["rewritten_query"] = rewritten
 
             logger.info(
@@ -111,6 +135,7 @@ def build_query_analyzer(settings: Settings):
             )
 
         except (json.JSONDecodeError, Exception) as exc:
+            # 解析失败时使用后备方案
             logger.warning("QueryAnalyzer parse error: %s. Using fallback.", exc)
             analysis = QueryAnalysis(
                 intent="factual",

@@ -1,4 +1,11 @@
-from __future__ import annotations
+"""文本切分模块，提供多种文本切分策略。
+
+本模块提供两种切分策略：
+1. 扁平切分：将文档切分为固定大小的块
+2. 父子块切分：两级层次化切分，父块提供上下文，子块用于精确检索
+
+切分器针对中英文混合文本优化，使用专门的分隔符列表。
+"""
 
 import uuid
 from dataclasses import dataclass, field

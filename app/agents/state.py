@@ -1,8 +1,9 @@
-"""Shared graph state definition for the multi-agent RAG pipeline.
+"""
+多智能体 RAG 流水线的共享图状态定义
 
-Every node in the LangGraph reads from and writes to this typed dictionary.
-Using ``TypedDict`` + ``Annotated`` with reducer functions allows LangGraph
-to merge partial updates from each agent automatically.
+LangGraph 中的每个节点都从这个类型化字典中读取和写入数据。
+使用 ``TypedDict`` + ``Annotated`` 配合归约器函数，允许 LangGraph
+自动合并来自每个智能体的部分更新。
 """
 
 from __future__ import annotations
@@ -15,67 +16,88 @@ from langchain_core.documents import Document
 
 
 # ---------------------------------------------------------------------------
-# Helper reducer: replace value (last write wins)
+# 辅助归约器：替换值（后写入者胜出）
 # ---------------------------------------------------------------------------
 def _replace(a: Any, b: Any) -> Any:
-    """Reducer that always takes the newer value."""
+    """
+    归约器函数，总是取较新的值
+
+    Args:
+        a: 旧值
+        b: 新值
+
+    Returns:
+        Any: 返回新值
+    """
     return b
 
 
 # ---------------------------------------------------------------------------
-# Sub-structures
+# 子结构定义
 # ---------------------------------------------------------------------------
 
 class QueryAnalysis(TypedDict, total=False):
-    """Output of the Query Analyzer agent."""
-    intent: str                         # e.g. "factual", "comparison", "summary", "how-to", "data_query"
-    rewritten_query: str                # Improved version of the original question
-    sub_queries: List[str]              # Multiple search queries from different angles
-    language: str                       # Detected language ("zh", "en", "mixed")
-    complexity: str                     # "simple", "moderate", "complex"
-    retrieval_strategy: str             # "hybrid" (vector+bm25), "vector", "bm25", "sql", "hybrid+sql"
+    """
+    查询分析器智能体的输出
+
+    包含查询意图、重写后的查询、子查询、语言、复杂度和检索策略等信息。
+    """
+    intent: str                         # 意图类型，如 "factual", "comparison", "summary", "how-to", "data_query"
+    rewritten_query: str                # 原始问题的改进版本
+    sub_queries: List[str]              # 从不同角度生成的多个搜索查询
+    language: str                       # 检测到的语言（"zh", "en", "mixed"）
+    complexity: str                     # 复杂度级别（"simple", "moderate", "complex"）
+    retrieval_strategy: str             # 检索策略（"hybrid", "vector", "bm25", "sql", "hybrid+sql"）
 
 
 class EvaluationResult(TypedDict, total=False):
-    """Output of the Quality Evaluator agent."""
-    is_grounded: bool                   # Answer is supported by sources?
-    is_sufficient: bool                 # Answer adequately addresses the question?
-    confidence: float                   # 0.0 – 1.0
-    feedback: str                       # Free-text explanation
-    decision: Literal["accept", "retry"]
+    """
+    质量评估器智能体的输出
+
+    包含答案是否基于事实、是否充分、置信度、反馈和决策等信息。
+    """
+    is_grounded: bool                   # 答案是否有来源支持
+    is_sufficient: bool                 # 答案是否充分回答了问题
+    confidence: float                   # 置信度分数（0.0 – 1.0）
+    feedback: str                       # 自由文本解释
+    decision: Literal["accept", "retry"]  # 决策：接受或重试
 
 
 # ---------------------------------------------------------------------------
-# Main graph state
+# 主图状态
 # ---------------------------------------------------------------------------
 
 class GraphState(TypedDict, total=False):
-    """The shared state that flows through the LangGraph."""
+    """
+    在 LangGraph 中流动的共享状态
 
-    # --- Input (set once at the start) ---
-    question: str
-    collection_name: str
-    chat_history: List[Dict[str, str]]
+    包含输入问题、查询分析结果、检索文档、SQL 结果、生成的答案、评估结果和控制流信息。
+    """
 
-    # --- Query Analyzer output ---
+    # --- 输入（在开始时设置一次）---
+    question: str                       # 用户问题
+    collection_name: str                # 集合名称
+    chat_history: List[Dict[str, str]]  # 聊天历史
+
+    # --- 查询分析器输出 ---
     query_analysis: Annotated[QueryAnalysis, _replace]
 
-    # --- Retriever output ---
-    retrieved_docs: Annotated[List[Document], _replace]
-    retrieval_queries_used: Annotated[List[str], _replace]
+    # --- 检索器输出 ---
+    retrieved_docs: Annotated[List[Document], _replace]  # 检索到的文档列表
+    retrieval_queries_used: Annotated[List[str], _replace]  # 使用的检索查询列表
 
-    # --- SQL Agent output ---
-    sql_result: Annotated[Optional[Dict[str, Any]], _replace]
-    sql_query: Annotated[Optional[str], _replace]
+    # --- SQL 智能体输出 ---
+    sql_result: Annotated[Optional[Dict[str, Any]], _replace]  # SQL 查询结果
+    sql_query: Annotated[Optional[str], _replace]  # 执行的 SQL 查询
 
-    # --- Generator output ---
-    answer: Annotated[str, _replace]
-    sources: Annotated[List[Dict[str, Any]], _replace]
+    # --- 生成器输出 ---
+    answer: Annotated[str, _replace]  # 生成的答案
+    sources: Annotated[List[Dict[str, Any]], _replace]  # 来源信息列表
 
-    # --- Evaluator output ---
+    # --- 评估器输出 ---
     evaluation: Annotated[EvaluationResult, _replace]
 
-    # --- Control flow ---
-    retry_count: Annotated[int, _replace]
-    max_retries: Annotated[int, _replace]
-    error: Annotated[Optional[str], _replace]
+    # --- 控制流 ---
+    retry_count: Annotated[int, _replace]  # 当前重试次数
+    max_retries: Annotated[int, _replace]  # 最大重试次数
+    error: Annotated[Optional[str], _replace]  # 错误信息

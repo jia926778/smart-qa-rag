@@ -1,9 +1,8 @@
-"""SQLite-based structured data store with Text-to-SQL capabilities.
+"""基于 SQLite 的结构化数据存储模块，支持 Text-to-SQL 功能。
 
-When Excel/CSV files are uploaded, their tabular content is automatically
-loaded into a local SQLite database (one table per sheet/file).  The
-Text-to-SQL agent can then generate SQL queries from natural language
-questions and return precise results from the structured data.
+当上传 Excel/CSV 文件时，其表格内容自动加载到本地 SQLite 数据库
+（每个工作表/文件对应一个表）。Text-to-SQL 智能体随后可以从
+自然语言问题生成 SQL 查询，并从结构化数据中返回精确结果。
 """
 
 from __future__ import annotations

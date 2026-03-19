@@ -1,4 +1,12 @@
-from __future__ import annotations
+"""重排序模块，提供多种文档重排序策略。
+
+重排序用于对初步检索结果进行精细化排序，提高相关性。
+
+支持的重排序方法：
+- CrossEncoder: 使用交叉编码器模型（精度高，速度较慢）
+- LLM: 使用 LLM 对每个文档评分（降级方案）
+- Cosine: 使用余弦相似度重排序（轻量级，无需额外模型）
+"""
 
 import math
 from abc import ABC, abstractmethod

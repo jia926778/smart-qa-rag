@@ -1,4 +1,15 @@
-from __future__ import annotations
+"""文档服务模块，处理完整的文档摄入流程。
+
+本模块实现文档的完整处理流水线：保存 -> 加载 -> 切分 -> 嵌入 -> 存储。
+
+主要特点：
+- 使用父子块切分策略：
+  - 子块（小而精确）存储在主集合中，用于向量检索
+  - 父块（大而丰富）存储在 ``{collection}_parents`` 集合中，
+    查询时提供更丰富的上下文
+- BM25 索引：子块被索引用于关键词搜索
+- SQL 存储：Excel/CSV 文件自动导入 SQLite 用于 Text-to-SQL 查询
+"""
 
 import os
 import shutil

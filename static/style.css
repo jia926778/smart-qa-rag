@@ -342,3 +342,287 @@ html, body {
   .sidebar.hidden { margin-left: calc(-1 * var(--sidebar-width)); }
   .message { max-width: 95%; }
 }
+
+/* ================================================================
+   新增功能样式
+   ================================================================ */
+
+/* ---- 通知容器 ---- */
+.notification-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.notification {
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  pointer-events: auto;
+  animation: slideIn 0.3s ease;
+  max-width: 350px;
+}
+
+.notification.success {
+  background: #10b981;
+  color: #fff;
+}
+
+.notification.error {
+  background: #ef4444;
+  color: #fff;
+}
+
+.notification.info {
+  background: #3b82f6;
+  color: #fff;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ---- 头部操作按钮 ---- */
+.header-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,.1);
+  border: 1px solid var(--border);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all .2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-icon:hover {
+  background: rgba(255,255,255,.2);
+  border-color: var(--primary);
+}
+
+.btn-danger-icon:hover {
+  background: rgba(239,68,68,.1);
+  border-color: var(--danger);
+}
+
+/* ---- 复制按钮 ---- */
+.copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: rgba(0,0,0,.05);
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .2s, background .2s;
+  font-size: 14px;
+}
+
+.message.assistant .bubble:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  background: rgba(0,0,0,.1);
+}
+
+/* ---- 上传进度条 ---- */
+.upload-progress {
+  margin-top: 10px;
+}
+
+.progress-item {
+  margin-bottom: 8px;
+}
+
+.progress-item .filename {
+  font-size: 12px;
+  color: var(--sidebar-text);
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.progress-bar {
+  height: 4px;
+  background: rgba(255,255,255,.1);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width .3s ease;
+}
+
+/* ---- 深色主题 ---- */
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --sidebar-bg: #0f172a;
+  --card-bg: #1e293b;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --assistant-bubble: #1e293b;
+}
+
+[data-theme="dark"] .sidebar-header {
+  border-bottom-color: rgba(255,255,255,.1);
+}
+
+[data-theme="dark"] .sidebar-section {
+  border-bottom-color: rgba(255,255,255,.08);
+}
+
+[data-theme="dark"] .btn-icon {
+  background: rgba(255,255,255,.05);
+  border-color: #334155;
+}
+
+[data-theme="dark"] .btn-icon:hover {
+  background: rgba(255,255,255,.1);
+}
+
+[data-theme="dark"] .bubble pre {
+  background: #0f172a;
+}
+
+[data-theme="dark"] .bubble code {
+  background: rgba(255,255,255,.1);
+}
+
+[data-theme="dark"] .sources-panel {
+  background: #0f172a;
+}
+
+/* ---- 文件图标 ---- */
+.file-icon {
+  margin-right: 6px;
+  font-size: 14px;
+}
+
+/* ---- 统计信息 ---- */
+.collection-stats {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 6px;
+  padding: 8px;
+  background: rgba(255,255,255,.05);
+  border-radius: 6px;
+}
+
+.collection-stats .stat-item {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.collection-stats .stat-item:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- 预览弹窗 ---- */
+.preview-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.preview-content {
+  background: var(--card-bg);
+  border-radius: 12px;
+  max-width: 800px;
+  max-height: 80vh;
+  width: 90%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.preview-header h4 {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.preview-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .2s;
+}
+
+.preview-close:hover {
+  background: rgba(0,0,0,.1);
+}
+
+.preview-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chunk-item {
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.chunk-item:last-child {
+  margin-bottom: 0;
+}
+
+.chunk-header {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}

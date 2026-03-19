@@ -1,23 +1,25 @@
-"""Multi-format document loader with advanced extraction capabilities.
+"""多格式文档加载器模块，支持高级内容提取能力。
 
-Supported formats and strategies:
+支持的文件格式和提取策略：
 
-| Category    | Extensions                | Strategy / Library                         |
-|-------------|---------------------------|--------------------------------------------|
-| PDF         | .pdf                      | pdfplumber (tables+text), fallback PyPDF   |
-| Word        | .docx                     | docx2txt / python-docx                     |
-| Excel       | .xlsx, .xls, .csv         | openpyxl / pandas → text tables            |
-| PowerPoint  | .pptx                     | python-pptx slide text + notes             |
-| Markdown    | .md                       | UnstructuredMarkdownLoader                 |
-| Plain text  | .txt, .log, .json, .xml   | TextLoader (UTF-8)                         |
-| HTML / Web  | .html, .htm               | BeautifulSoup text extraction              |
-| Images/OCR  | .png, .jpg, .jpeg, .tiff, .bmp | pytesseract OCR                       |
-| Audio/Video | .mp3, .wav, .mp4, .m4a, .webm  | OpenAI Whisper transcription          |
+| 类别        | 扩展名                        | 策略 / 依赖库                              |
+|------------|------------------------------|-------------------------------------------|
+| PDF        | .pdf                         | pdfplumber (表格+文本), 降级 PyPDF         |
+| Word       | .docx                        | docx2txt / python-docx                    |
+| Excel      | .xlsx, .xls, .csv            | openpyxl / pandas → 文本表格               |
+| PowerPoint | .pptx                        | python-pptx 幻灯片文本 + 备注              |
+| Markdown   | .md                          | UnstructuredMarkdownLoader                |
+| 纯文本      | .txt, .log, .json, .xml      | TextLoader (UTF-8)                        |
+| HTML / 网页 | .html, .htm                  | BeautifulSoup 文本提取                     |
+| 图片/OCR   | .png, .jpg, .jpeg, .tiff, .bmp | pytesseract OCR                          |
+| 音视频      | .mp3, .wav, .mp4, .m4a, .webm  | OpenAI Whisper 转写                       |
 
-Each loader returns ``List[Document]`` with rich metadata (source, page,
-file_type, extraction_method).  All external dependencies are lazily
-imported so the system degrades gracefully if optional packages are
-missing.
+每个加载器返回 ``List[Document]``，包含丰富的元数据（source, page,
+file_type, extraction_method）。所有外部依赖均为延迟导入，
+如果可选包未安装，系统会优雅降级。
+
+主要组件：
+- DocumentLoaderFactory: 文档加载器工厂类，根据文件扩展名选择合适的加载器
 """
 
 from __future__ import annotations
@@ -39,11 +41,19 @@ logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Base helpers
+# 基础辅助函数
 # ---------------------------------------------------------------------------
 
 def _meta(file_path: str, **extra: Any) -> Dict[str, Any]:
-    """Build base metadata dict."""
+    """构建文档的基础元数据字典。
+    
+    Args:
+        file_path: 文件路径。
+        **extra: 额外的元数据字段。
+    
+    Returns:
+        包含 source、file_type 及额外字段的元数据字典。
+    """
     p = Path(file_path)
     return {
         "source": p.name,
@@ -53,10 +63,23 @@ def _meta(file_path: str, **extra: Any) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# PDF loader — pdfplumber with table extraction, fallback to PyPDF
+# PDF 加载器 — pdfplumber 支持表格提取，降级到 PyPDF
 # ---------------------------------------------------------------------------
 
 def _load_pdf(file_path: str) -> List[Document]:
+    """加载 PDF 文件，提取文本和表格内容。
+    
+    优先使用 pdfplumber（支持表格提取），失败时降级到 PyPDF。
+    
+    Args:
+        file_path: PDF 文件路径。
+    
+    Returns:
+        文档列表，每页一个 Document 对象。
+    
+    Raises:
+        DocumentLoadError: PDF 加载失败时抛出。
+    """
     docs: List[Document] = []
     try:
         import pdfplumber  # type: ignore
@@ -65,12 +88,12 @@ def _load_pdf(file_path: str) -> List[Document]:
             for page_num, page in enumerate(pdf.pages, 1):
                 parts: List[str] = []
 
-                # Extract text
+                # 提取文本
                 text = page.extract_text() or ""
                 if text.strip():
                     parts.append(text)
 
-                # Extract tables → Markdown tables
+                # 提取表格并转换为 Markdown 格式
                 tables = page.extract_tables() or []
                 for table in tables:
                     if not table:
@@ -94,7 +117,7 @@ def _load_pdf(file_path: str) -> List[Document]:
     except Exception as exc:
         logger.warning("pdfplumber failed for %s: %s. Falling back to PyPDF.", file_path, exc)
 
-    # Fallback: PyPDF
+    # 降级方案：PyPDF
     try:
         from langchain_community.document_loaders import PyPDFLoader
         loader = PyPDFLoader(file_path)
@@ -108,21 +131,28 @@ def _load_pdf(file_path: str) -> List[Document]:
 
 
 def _table_to_markdown(table: List[List[Optional[str]]]) -> str:
-    """Convert a 2D table to Markdown format."""
+    """将二维表格转换为 Markdown 格式。
+    
+    Args:
+        table: 二维列表，每个元素为单元格内容。
+    
+    Returns:
+        Markdown 格式的表格字符串。
+    """
     if not table or len(table) < 1:
         return ""
-    # Clean cells
+    # 清理单元格内容
     cleaned = []
     for row in table:
         cleaned.append([str(cell).strip() if cell else "" for cell in row])
 
     lines = []
-    # Header
+    # 表头
     lines.append("| " + " | ".join(cleaned[0]) + " |")
     lines.append("| " + " | ".join(["---"] * len(cleaned[0])) + " |")
-    # Body
+    # 表体
     for row in cleaned[1:]:
-        # Pad row if shorter than header
+        # 如果行长度不足，用空字符串填充
         while len(row) < len(cleaned[0]):
             row.append("")
         lines.append("| " + " | ".join(row[:len(cleaned[0])]) + " |")
@@ -130,10 +160,23 @@ def _table_to_markdown(table: List[List[Optional[str]]]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Word loader (.docx)
+# Word 加载器 (.docx)
 # ---------------------------------------------------------------------------
 
 def _load_docx(file_path: str) -> List[Document]:
+    """加载 Word 文档 (.docx)。
+    
+    优先使用 docx2txt，失败时降级到 python-docx。
+    
+    Args:
+        file_path: Word 文件路径。
+    
+    Returns:
+        文档列表。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         import docx2txt  # type: ignore
         text = docx2txt.process(file_path)
@@ -146,7 +189,7 @@ def _load_docx(file_path: str) -> List[Document]:
     except ImportError:
         pass
 
-    # Fallback: python-docx for more structure
+    # 降级方案：python-docx（提供更多结构信息）
     try:
         from docx import Document as DocxDocument  # type: ignore
         doc = DocxDocument(file_path)
@@ -164,10 +207,21 @@ def _load_docx(file_path: str) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# Excel loader (.xlsx, .xls, .csv)
+# Excel 加载器 (.xlsx, .xls, .csv)
 # ---------------------------------------------------------------------------
 
 def _load_excel(file_path: str) -> List[Document]:
+    """加载 Excel 文件 (.xlsx, .xls) 或 CSV 文件。
+    
+    Args:
+        file_path: Excel 或 CSV 文件路径。
+    
+    Returns:
+        文档列表，每个工作表一个 Document 对象。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     ext = Path(file_path).suffix.lower()
     try:
         import openpyxl  # type: ignore
@@ -180,7 +234,7 @@ def _load_excel(file_path: str) -> List[Document]:
         return _load_csv(file_path)
 
     if ext in (".xlsx", ".xls"):
-        # Try openpyxl first
+        # 优先使用 openpyxl
         if openpyxl:
             try:
                 wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
@@ -203,7 +257,7 @@ def _load_excel(file_path: str) -> List[Document]:
             except Exception as exc:
                 logger.warning("openpyxl failed: %s", exc)
 
-        # Fallback: pandas
+        # 降级方案：pandas
         try:
             import pandas as pd  # type: ignore
             xls = pd.ExcelFile(file_path)
@@ -225,6 +279,17 @@ def _load_excel(file_path: str) -> List[Document]:
 
 
 def _load_csv(file_path: str) -> List[Document]:
+    """加载 CSV 文件。
+    
+    Args:
+        file_path: CSV 文件路径。
+    
+    Returns:
+        文档列表，包含表格的 Markdown 表示。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             reader = csv.reader(f)
@@ -241,10 +306,23 @@ def _load_csv(file_path: str) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# PowerPoint loader (.pptx)
+# PowerPoint 加载器 (.pptx)
 # ---------------------------------------------------------------------------
 
 def _load_pptx(file_path: str) -> List[Document]:
+    """加载 PowerPoint 文件 (.pptx)。
+    
+    提取每张幻灯片的文本、表格和演讲者备注。
+    
+    Args:
+        file_path: PowerPoint 文件路径。
+    
+    Returns:
+        文档列表，每张幻灯片一个 Document 对象。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         from pptx import Presentation  # type: ignore
     except ImportError:
@@ -256,10 +334,12 @@ def _load_pptx(file_path: str) -> List[Document]:
         for slide_num, slide in enumerate(prs.slides, 1):
             parts: List[str] = []
             for shape in slide.shapes:
+                # 提取文本框内容
                 if shape.has_text_frame:
                     text = shape.text_frame.text.strip()
                     if text:
                         parts.append(text)
+                # 提取表格
                 if shape.has_table:
                     table = shape.table
                     rows = []
@@ -268,7 +348,7 @@ def _load_pptx(file_path: str) -> List[Document]:
                     md = _table_to_markdown(rows)
                     if md:
                         parts.append(md)
-            # Speaker notes
+            # 提取演讲者备注
             if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
                 notes = slide.notes_slide.notes_text_frame.text.strip()
                 if notes:
@@ -288,10 +368,21 @@ def _load_pptx(file_path: str) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# Markdown loader
+# Markdown 加载器
 # ---------------------------------------------------------------------------
 
 def _load_markdown(file_path: str) -> List[Document]:
+    """加载 Markdown 文件。
+    
+    Args:
+        file_path: Markdown 文件路径。
+    
+    Returns:
+        文档列表。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         from langchain_community.document_loaders import UnstructuredMarkdownLoader
         loader = UnstructuredMarkdownLoader(file_path)
@@ -300,17 +391,28 @@ def _load_markdown(file_path: str) -> List[Document]:
             doc.metadata.update(_meta(file_path, extraction_method="unstructured_md"))
         return docs
     except ImportError:
-        # Fallback: load as plain text
+        # 降级方案：作为纯文本加载
         return _load_text(file_path)
     except Exception as exc:
         raise DocumentLoadError(f"Markdown load failed: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
-# Plain text / structured text loader
+# 纯文本 / 结构化文本加载器
 # ---------------------------------------------------------------------------
 
 def _load_text(file_path: str) -> List[Document]:
+    """加载纯文本文件。
+    
+    Args:
+        file_path: 文本文件路径。
+    
+    Returns:
+        文档列表。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         with open(file_path, "r", encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -325,7 +427,17 @@ def _load_text(file_path: str) -> List[Document]:
 
 
 def _load_json(file_path: str) -> List[Document]:
-    """Load JSON and convert to readable text."""
+    """加载 JSON 文件并转换为可读文本。
+    
+    Args:
+        file_path: JSON 文件路径。
+    
+    Returns:
+        文档列表，包含格式化的 JSON 文本。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -339,14 +451,25 @@ def _load_json(file_path: str) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# HTML / web page loader
+# HTML / 网页加载器
 # ---------------------------------------------------------------------------
 
 def _load_html(file_path: str) -> List[Document]:
+    """加载 HTML 文件，提取文本和表格内容。
+    
+    Args:
+        file_path: HTML 文件路径。
+    
+    Returns:
+        文档列表。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         from bs4 import BeautifulSoup  # type: ignore
     except ImportError:
-        # Fallback: strip tags with regex
+        # 降级方案：使用正则表达式去除标签
         return _load_html_fallback(file_path)
 
     try:
@@ -354,11 +477,11 @@ def _load_html(file_path: str) -> List[Document]:
             html = f.read()
         soup = BeautifulSoup(html, "html.parser")
 
-        # Remove script/style
+        # 移除脚本、样式、导航等非内容元素
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
 
-        # Extract tables separately
+        # 单独提取表格
         parts: List[str] = []
         for table_tag in soup.find_all("table"):
             rows = []
@@ -369,7 +492,7 @@ def _load_html(file_path: str) -> List[Document]:
                 parts.append(_table_to_markdown(rows))
             table_tag.decompose()
 
-        # Main text
+        # 提取主要文本
         main_text = soup.get_text(separator="\n", strip=True)
         if main_text:
             parts.insert(0, main_text)
@@ -386,6 +509,14 @@ def _load_html(file_path: str) -> List[Document]:
 
 
 def _load_html_fallback(file_path: str) -> List[Document]:
+    """HTML 加载的降级方案，使用正则表达式去除标签。
+    
+    Args:
+        file_path: HTML 文件路径。
+    
+    Returns:
+        文档列表。
+    """
     import re
     with open(file_path, "r", encoding="utf-8", errors="replace") as f:
         html = f.read()
@@ -397,10 +528,21 @@ def _load_html_fallback(file_path: str) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# OCR loader (scanned images / PDFs)
+# OCR 加载器（扫描图片 / PDF）
 # ---------------------------------------------------------------------------
 
 def _load_ocr_image(file_path: str) -> List[Document]:
+    """使用 OCR 技术从图片中提取文本。
+    
+    Args:
+        file_path: 图片文件路径。
+    
+    Returns:
+        文档列表。
+    
+    Raises:
+        DocumentLoadError: OCR 失败时抛出。
+    """
     try:
         from PIL import Image  # type: ignore
         import pytesseract  # type: ignore
@@ -412,7 +554,7 @@ def _load_ocr_image(file_path: str) -> List[Document]:
 
     try:
         image = Image.open(file_path)
-        # Attempt Chinese + English OCR
+        # 尝试中文 + 英文 OCR
         text = pytesseract.image_to_string(image, lang="chi_sim+eng")
         if text and text.strip():
             return [Document(
@@ -425,7 +567,19 @@ def _load_ocr_image(file_path: str) -> List[Document]:
 
 
 def _load_scanned_pdf(file_path: str) -> List[Document]:
-    """For PDFs that are scanned images — convert pages to images then OCR."""
+    """对扫描版 PDF 进行 OCR 处理。
+    
+    将 PDF 页面转换为图片后进行 OCR 识别。
+    
+    Args:
+        file_path: PDF 文件路径。
+    
+    Returns:
+        文档列表，每页一个 Document 对象。
+    
+    Raises:
+        DocumentLoadError: OCR 失败时抛出。
+    """
     try:
         from pdf2image import convert_from_path  # type: ignore
         import pytesseract  # type: ignore
@@ -452,11 +606,22 @@ def _load_scanned_pdf(file_path: str) -> List[Document]:
 
 
 # ---------------------------------------------------------------------------
-# Audio / Video transcription (Whisper)
+# 音视频转写（Whisper）
 # ---------------------------------------------------------------------------
 
 def _load_audio_video(file_path: str, whisper_model: str = "base") -> List[Document]:
-    """Transcribe audio/video files using OpenAI Whisper."""
+    """使用 OpenAI Whisper 对音视频文件进行转写。
+    
+    Args:
+        file_path: 音视频文件路径。
+        whisper_model: Whisper 模型名称，默认为 "base"。
+    
+    Returns:
+        文档列表，长音频按时间窗口分段。
+    
+    Raises:
+        DocumentLoadError: 转写失败时抛出。
+    """
     try:
         import whisper  # type: ignore
     except ImportError:
@@ -468,7 +633,7 @@ def _load_audio_video(file_path: str, whisper_model: str = "base") -> List[Docum
     try:
         logger.info("Transcribing with Whisper (model=%s): %s", whisper_model, file_path)
         model = whisper.load_model(whisper_model)
-        result = model.transcribe(file_path, language=None)  # auto-detect language
+        result = model.transcribe(file_path, language=None)  # 自动检测语言
 
         text = result.get("text", "")
         language = result.get("language", "unknown")
@@ -479,12 +644,12 @@ def _load_audio_video(file_path: str, whisper_model: str = "base") -> List[Docum
         if not text or not text.strip():
             return []
 
-        # If long, split by segments for better chunking
+        # 如果音频较长，按片段分段以便更好地切分
         if len(segments) > 10:
-            # Group segments into ~60 second windows
+            # 将片段按约 60 秒的时间窗口分组
             current_parts: List[str] = []
             current_start = 0.0
-            window_size = 60.0  # seconds
+            window_size = 60.0  # 秒
 
             for seg in segments:
                 seg_text = seg.get("text", "").strip()
@@ -508,7 +673,7 @@ def _load_audio_video(file_path: str, whisper_model: str = "base") -> List[Docum
 
                 current_parts.append(seg_text)
 
-            # Remaining
+            # 处理剩余部分
             if current_parts:
                 docs.append(Document(
                     page_content=" ".join(current_parts),
@@ -537,11 +702,21 @@ def _load_audio_video(file_path: str, whisper_model: str = "base") -> List[Docum
 
 
 # ---------------------------------------------------------------------------
-# Unstructured universal fallback
+# Unstructured 通用降级加载器
 # ---------------------------------------------------------------------------
 
 def _load_unstructured(file_path: str) -> List[Document]:
-    """Last-resort loader using the `unstructured` library's auto-detection."""
+    """使用 unstructured 库的自动检测功能作为最后的降级方案。
+    
+    Args:
+        file_path: 文件路径。
+    
+    Returns:
+        文档列表。
+    
+    Raises:
+        DocumentLoadError: 加载失败时抛出。
+    """
     try:
         from unstructured.partition.auto import partition  # type: ignore
     except ImportError:
@@ -564,10 +739,10 @@ def _load_unstructured(file_path: str) -> List[Document]:
 
 
 # ===================================================================
-# Main factory
+# 主工厂类
 # ===================================================================
 
-# Extension → loader function mapping
+# 扩展名 -> 加载函数映射
 _LOADER_REGISTRY: Dict[str, Any] = {
     # PDF
     ".pdf": _load_pdf,
@@ -581,7 +756,7 @@ _LOADER_REGISTRY: Dict[str, Any] = {
     ".pptx": _load_pptx,
     # Markdown
     ".md": _load_markdown,
-    # Plain text / structured
+    # 纯文本 / 结构化
     ".txt": _load_text,
     ".log": _load_text,
     ".json": _load_json,
@@ -591,14 +766,14 @@ _LOADER_REGISTRY: Dict[str, Any] = {
     # HTML
     ".html": _load_html,
     ".htm": _load_html,
-    # Images (OCR)
+    # 图片 (OCR)
     ".png": _load_ocr_image,
     ".jpg": _load_ocr_image,
     ".jpeg": _load_ocr_image,
     ".tiff": _load_ocr_image,
     ".tif": _load_ocr_image,
     ".bmp": _load_ocr_image,
-    # Audio / Video (Whisper)
+    # 音视频 (Whisper 转写)
     ".mp3": _load_audio_video,
     ".wav": _load_audio_video,
     ".m4a": _load_audio_video,
@@ -610,19 +785,29 @@ _LOADER_REGISTRY: Dict[str, Any] = {
 
 
 class DocumentLoaderFactory:
-    """Create the appropriate document loader based on file extension.
-
-    Supports 25+ file extensions across 8 categories:
-    PDF, Word, Excel/CSV, PowerPoint, Markdown, HTML, Images (OCR),
-    Audio/Video (Whisper transcription).
+    """文档加载器工厂类，根据文件扩展名选择合适的加载器。
+    
+    支持 25+ 种文件扩展名，涵盖 8 大类别：
+    PDF、Word、Excel/CSV、PowerPoint、Markdown、HTML、图片(OCR)、
+    音视频(Whisper 转写)。
     """
 
     @staticmethod
     def supported_extensions() -> List[str]:
+        """获取所有支持的文件扩展名列表。
+        
+        Returns:
+            排序后的扩展名列表。
+        """
         return sorted(_LOADER_REGISTRY.keys())
 
     @staticmethod
     def supported_categories() -> Dict[str, List[str]]:
+        """获取按类别分组的支持扩展名。
+        
+        Returns:
+            类别名到扩展名列表的映射字典。
+        """
         return {
             "PDF (含表格提取)": [".pdf"],
             "Word 文档": [".docx"],
@@ -637,21 +822,25 @@ class DocumentLoaderFactory:
 
     @staticmethod
     def load(file_path: str, enable_ocr_fallback: bool = True) -> List[Document]:
-        """Load a document from the given file path.
-
+        """根据文件扩展名加载文档。
+        
         Args:
-            file_path: Path to the file.
-            enable_ocr_fallback: If True, attempt OCR on PDFs that yield
-                no text from normal extraction.
-
+            file_path: 文件路径。
+            enable_ocr_fallback: 是否启用 PDF OCR 降级，默认为 True。
+                当 PDF 正常提取无文本时，尝试 OCR 方式。
+        
         Returns:
-            List of Document objects with text content and metadata.
+            文档列表，包含文本内容和元数据。
+        
+        Raises:
+            UnsupportedFileTypeError: 文件类型不支持时抛出。
+            DocumentLoadError: 文档加载失败时抛出。
         """
         ext = Path(file_path).suffix.lower()
         loader_fn = _LOADER_REGISTRY.get(ext)
 
         if loader_fn is None:
-            # Try unstructured as universal fallback
+            # 尝试使用 unstructured 作为通用降级方案
             try:
                 logger.info("Unknown extension %s, trying unstructured fallback", ext)
                 docs = _load_unstructured(file_path)
@@ -664,7 +853,7 @@ class DocumentLoaderFactory:
         try:
             docs = loader_fn(file_path)
 
-            # PDF OCR fallback: if PDF yielded no text, try scanned-PDF OCR
+            # PDF OCR 降级：如果 PDF 未提取到文本，尝试扫描版 PDF OCR
             if ext == ".pdf" and enable_ocr_fallback and not docs:
                 logger.info("PDF yielded no text, attempting OCR fallback for %s", file_path)
                 try:

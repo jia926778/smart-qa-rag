@@ -1,4 +1,12 @@
-from __future__ import annotations
+"""提示词构建模块，用于构建 LLM 调用的消息列表。
+
+本模块负责将用户问题、检索到的上下文文档和聊天历史，
+组装成适合 LLM 调用的消息格式。
+
+主要组件：
+- PromptBuilder: 提示词构建器类
+- SYSTEM_PROMPT: 系统提示词模板
+"""
 
 from typing import Dict, List
 
@@ -9,6 +17,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 系统提示词，定义 AI 助手的行为规范
 SYSTEM_PROMPT = (
     "你是一个专业的智能问答助手。请根据提供的参考资料回答用户的问题。\n"
     "回答要求：\n"
@@ -19,11 +28,12 @@ SYSTEM_PROMPT = (
     "5. 如果问题需要分步骤回答，请使用编号列表。"
 )
 
+# 聊天历史的最大消息数
 MAX_HISTORY_MESSAGES = 6
 
 
 class PromptBuilder:
-    """Build the messages list for the LLM call."""
+    """提示词构建器，用于构建 LLM 调用的消息列表。"""
 
     @staticmethod
     def build(
@@ -31,9 +41,19 @@ class PromptBuilder:
         context_docs: List[Document],
         chat_history: List[ChatMessage] | None = None,
     ) -> List[Dict[str, str]]:
+        """构建 LLM 调用的消息列表。
+        
+        Args:
+            question: 用户当前问题。
+            context_docs: 检索到的上下文文档列表。
+            chat_history: 聊天历史消息列表，可选。
+        
+        Returns:
+            消息列表，每个消息包含 role 和 content 字段。
+        """
         messages: List[Dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-        # --- Context ---
+        # --- 上下文部分 ---
         if context_docs:
             context_parts: List[str] = []
             for idx, doc in enumerate(context_docs, 1):
@@ -52,13 +72,13 @@ class PromptBuilder:
                 }
             )
 
-        # --- Chat history (last N messages) ---
+        # --- 聊天历史（最近 N 条消息）---
         if chat_history:
             recent = chat_history[-MAX_HISTORY_MESSAGES:]
             for msg in recent:
                 messages.append({"role": msg.role, "content": msg.content})
 
-        # --- Current question ---
+        # --- 当前问题 ---
         messages.append({"role": "user", "content": question})
 
         logger.debug("Prompt built with %d message(s)", len(messages))

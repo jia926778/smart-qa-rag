@@ -1,9 +1,9 @@
-"""QA Service — delegates to the LangGraph multi-agent pipeline.
+"""问答服务模块，委托给 LangGraph 多智能体流水线。
 
-The service acts as the bridge between the FastAPI layer and the
-LangGraph graph.  It initializes the graph state from the incoming
-request, invokes the compiled graph, and maps the final state back
-to the API response model.
+本服务作为 FastAPI 层与 LangGraph 图之间的桥梁：
+- 从传入请求初始化图状态
+- 调用编译好的图执行
+- 将最终状态映射回 API 响应模型
 """
 
 from __future__ import annotations
@@ -24,7 +24,12 @@ logger = get_logger(__name__)
 
 
 class QAService:
-    """Orchestrate the multi-agent RAG pipeline via LangGraph."""
+    """问答服务类，通过 LangGraph 编排多智能体 RAG 流水线。
+    
+    Attributes:
+        _settings: 应用配置对象。
+        _graph: 编译好的 LangGraph 图。
+    """
 
     def __init__(
         self,
@@ -32,15 +37,33 @@ class QAService:
         retriever: SmartRetriever,
         sql_store: SQLStore | None = None,
     ) -> None:
+        """初始化问答服务。
+        
+        Args:
+            settings: 应用配置对象。
+            retriever: 智能检索器实例。
+            sql_store: SQL 存储服务，可选。
+        """
         self._settings = settings
         self._graph = build_rag_graph(
             settings=settings, retriever=retriever, sql_store=sql_store,
         )
 
     async def ask(self, request: AskRequest) -> AskResponse:
+        """处理问答请求。
+        
+        Args:
+            request: 问答请求对象。
+        
+        Returns:
+            问答响应对象，包含答案、来源和耗时。
+        
+        Raises:
+            LLMError: 智能体流水线执行失败时抛出。
+        """
         start = time.perf_counter()
 
-        # Build initial graph state
+        # 构建初始图状态
         initial_state: Dict[str, Any] = {
             "question": request.question,
             "collection_name": request.collection_name,
@@ -53,20 +76,20 @@ class QAService:
         }
 
         try:
-            # Run the full agent graph
+            # 运行完整的智能体图
             final_state = await self._graph.ainvoke(initial_state)
         except Exception as exc:
             logger.error("LangGraph execution failed: %s", exc)
             raise LLMError(f"Agent pipeline failed: {exc}") from exc
 
-        # Extract results from final state
+        # 从最终状态提取结果
         answer = final_state.get("answer", "抱歉，无法生成回答。")
         raw_sources = final_state.get("sources", [])
         evaluation = final_state.get("evaluation", {})
         query_analysis = final_state.get("query_analysis", {})
         retry_count = final_state.get("retry_count", 0)
 
-        # Map to response model
+        # 映射到响应模型
         sources: List[SourceInfo] = []
         for src in raw_sources:
             sources.append(
