@@ -339,16 +339,27 @@ loadDocuments();
    新增功能模块
    ================================================================ */
 
-// ---- NotificationManager (通知管理器) ----
+/**
+ * 通知管理器
+ * 负责显示成功、错误、信息等类型的提示消息
+ */
 const NotificationManager = {
   container: document.getElementById("notificationContainer"),
   
+  /**
+   * 显示通知消息
+   * @param {string} message - 消息内容
+   * @param {string} type - 消息类型 (success/error/info)
+   * @param {number} duration - 显示时长（毫秒），0 表示不自动消失
+   * @returns {HTMLElement} 通知元素
+   */
   show(message, type = "info", duration = 3000) {
     const notification = document.createElement("div");
     notification.className = `notification ${type}`;
     notification.textContent = message;
     this.container.appendChild(notification);
     
+    // 设置自动消失
     if (duration > 0) {
       setTimeout(() => {
         notification.style.animation = "slideIn 0.3s ease reverse";
@@ -359,27 +370,51 @@ const NotificationManager = {
     return notification;
   },
   
+  /**
+   * 显示成功提示
+   * @param {string} message - 消息内容
+   * @param {number} duration - 显示时长
+   */
   showSuccess(message, duration = 2000) {
     return this.show(message, "success", duration);
   },
   
+  /**
+   * 显示错误提示
+   * @param {string} message - 消息内容
+   * @param {number} duration - 显示时长
+   */
   showError(message, duration = 4000) {
     return this.show(message, "error", duration);
   },
   
+  /**
+   * 显示信息提示
+   * @param {string} message - 消息内容
+   * @param {number} duration - 显示时长
+   */
   showInfo(message, duration = 3000) {
     return this.show(message, "info", duration);
   }
 };
 
-// ---- StorageManager (存储管理器) ----
+/**
+ * 存储管理器
+ * 负责本地存储的读写操作，支持数据清理和容量限制
+ */
 const StorageManager = {
-  maxChatHistory: 50,
-  maxSize: 5 * 1024 * 1024,
+  maxChatHistory: 50,        // 最多保留 50 条消息
+  maxSize: 5 * 1024 * 1024,  // 5MB 上限
   
+  /**
+   * 保存数据到本地存储
+   * @param {string} key - 存储键名
+   * @param {any} data - 要保存的数据
+   */
   save(key, data) {
     try {
       const serialized = JSON.stringify(data);
+      // 超过容量限制时清理旧数据
       if (serialized.length > this.maxSize) {
         this.pruneOldData(key);
       }
@@ -389,6 +424,11 @@ const StorageManager = {
     }
   },
   
+  /**
+   * 从本地存储加载数据
+   * @param {string} key - 存储键名
+   * @returns {any} 加载的数据，失败返回 null
+   */
   load(key) {
     try {
       const data = localStorage.getItem(key);
@@ -398,10 +438,18 @@ const StorageManager = {
     }
   },
   
+  /**
+   * 清除指定键的数据
+   * @param {string} key - 存储键名
+   */
   clear(key) {
     localStorage.removeItem(key);
   },
   
+  /**
+   * 清理旧数据以释放空间
+   * @param {string} key - 存储键名
+   */
   pruneOldData(key) {
     const data = this.load(key);
     if (data && data.messages && data.messages.length > this.maxChatHistory) {
@@ -411,17 +459,26 @@ const StorageManager = {
   }
 };
 
-// ---- ThemeManager (主题管理器) ----
+/**
+ * 主题管理器
+ * 负责深色/浅色模式切换和用户偏好持久化
+ */
 const ThemeManager = {
   currentTheme: "light",
   storageKey: "theme_preference",
   btnToggleTheme: document.getElementById("btnToggleTheme"),
   
+  /**
+   * 初始化主题管理器
+   */
   init() {
     this.loadPreference();
     this.btnToggleTheme.addEventListener("click", () => this.toggleTheme());
   },
   
+  /**
+   * 切换主题
+   */
   toggleTheme() {
     this.currentTheme = this.currentTheme === "light" ? "dark" : "light";
     this.applyTheme();
@@ -429,14 +486,23 @@ const ThemeManager = {
     this.updateButtonIcon();
   },
   
+  /**
+   * 应用主题到 DOM
+   */
   applyTheme() {
     document.documentElement.setAttribute("data-theme", this.currentTheme);
   },
   
+  /**
+   * 保存主题偏好到本地存储
+   */
   savePreference() {
     localStorage.setItem(this.storageKey, this.currentTheme);
   },
   
+  /**
+   * 从本地存储加载主题偏好
+   */
   loadPreference() {
     const saved = localStorage.getItem(this.storageKey);
     if (saved) {
@@ -446,26 +512,39 @@ const ThemeManager = {
     this.updateButtonIcon();
   },
   
+  /**
+   * 更新主题切换按钮图标
+   */
   updateButtonIcon() {
     this.btnToggleTheme.textContent = this.currentTheme === "light" ? "🌙" : "☀️";
   }
 };
 
-// ---- ChatManager (对话管理器) ----
+/**
+ * 对话管理器
+ * 负责对话历史的清空、导出、复制和持久化
+ */
 const ChatManager = {
   btnClearChat: document.getElementById("btnClearChat"),
   btnExportChat: document.getElementById("btnExportChat"),
   storageKey: "chat_history",
   
+  /**
+   * 初始化对话管理器
+   */
   init() {
     this.btnClearChat.addEventListener("click", () => this.clearChat());
     this.btnExportChat.addEventListener("click", () => this.exportChat());
     this.loadFromStorage();
   },
   
+  /**
+   * 清空当前对话
+   */
   clearChat() {
     if (!confirm("确定要清空当前对话吗？")) return;
     
+    // 清空 DOM 和状态
     messagesEl.innerHTML = "";
     chatHistory = [];
     
@@ -475,10 +554,14 @@ const ChatManager = {
     welcomeMsg.innerHTML = `<div class="bubble">您好！我是智能问答助手，请先在左侧上传文档到知识库，然后向我提问吧。</div>`;
     messagesEl.appendChild(welcomeMsg);
     
+    // 清除本地存储
     StorageManager.clear(this.storageKey);
     NotificationManager.showSuccess("对话已清空");
   },
   
+  /**
+   * 导出对话为 Markdown 文件
+   */
   exportChat() {
     if (chatHistory.length === 0) {
       NotificationManager.showError("暂无对话记录可导出");
@@ -489,6 +572,7 @@ const ChatManager = {
     const now = new Date();
     const timestamp = now.toLocaleString("zh-CN");
     
+    // 构建 Markdown 内容
     let markdown = `# Smart QA 对话记录\n\n`;
     markdown += `**导出时间**: ${timestamp}\n`;
     markdown += `**知识库**: ${collection}\n\n---\n\n`;
@@ -496,6 +580,7 @@ const ChatManager = {
     chatHistory.forEach((msg, idx) => {
       const role = msg.role === "user" ? "用户" : "AI 助手";
       markdown += `## ${role}\n${msg.content}\n\n`;
+      // 添加来源信息
       if (msg.sources && msg.sources.length > 0) {
         markdown += `**来源**:\n`;
         msg.sources.forEach((s, i) => {
@@ -508,6 +593,7 @@ const ChatManager = {
       markdown += `---\n\n`;
     });
     
+    // 创建并下载文件
     const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -519,12 +605,16 @@ const ChatManager = {
     NotificationManager.showSuccess("对话已导出");
   },
   
+  /**
+   * 复制消息内容到剪贴板
+   * @param {string} content - 要复制的内容
+   */
   async copyMessage(content) {
     try {
       await navigator.clipboard.writeText(content);
       NotificationManager.showSuccess("已复制到剪贴板");
     } catch (e) {
-      // 降级方案
+      // 降级方案：使用 execCommand
       const textarea = document.createElement("textarea");
       textarea.value = content;
       document.body.appendChild(textarea);
@@ -535,6 +625,9 @@ const ChatManager = {
     }
   },
   
+  /**
+   * 保存对话历史到本地存储
+   */
   saveToStorage() {
     const data = {
       collection_name: getCollection(),
@@ -544,10 +637,13 @@ const ChatManager = {
     StorageManager.save(this.storageKey, data);
   },
   
+  /**
+   * 从本地存储恢复对话历史
+   */
   loadFromStorage() {
     const data = StorageManager.load(this.storageKey);
     if (data && data.messages && data.messages.length > 0) {
-      // 恢复对话历史
+      // 恢复对话历史到界面
       data.messages.forEach(msg => {
         if (msg.role === "user") {
           addMessage("user", msg.content);
@@ -560,11 +656,19 @@ const ChatManager = {
   }
 };
 
-// ---- UploadManager (上传管理器) ----
+/**
+ * 上传管理器
+ * 负责批量文件上传、进度显示和文件图标
+ */
 const UploadManager = {
   uploadProgress: document.getElementById("uploadProgress"),
-  maxFiles: 10,
+  maxFiles: 10,  // 最多同时上传 10 个文件
   
+  /**
+   * 根据文件名获取对应的图标
+   * @param {string} filename - 文件名
+   * @returns {string} 图标 emoji
+   */
   getFileIcon(filename) {
     const ext = filename.split(".").pop().toLowerCase();
     const iconMap = {
@@ -578,6 +682,10 @@ const UploadManager = {
     return iconMap[ext] || "📁";
   },
   
+  /**
+   * 批量上传文件
+   * @param {FileList} files - 文件列表
+   */
   async uploadMultiple(files) {
     const fileArray = Array.from(files).slice(0, this.maxFiles);
     if (fileArray.length < files.length) {
@@ -586,18 +694,26 @@ const UploadManager = {
     
     this.uploadProgress.innerHTML = "";
     
+    // 依次上传每个文件
     for (let i = 0; i < fileArray.length; i++) {
       await this.uploadFileWithProgress(fileArray[i], i, fileArray.length);
     }
     
+    // 刷新文档列表和知识库列表
     loadDocuments();
     loadCollections();
   },
   
+  /**
+   * 带进度显示的单文件上传
+   * @param {File} file - 文件对象
+   * @param {number} index - 文件索引
+   * @param {number} total - 总文件数
+   */
   async uploadFileWithProgress(file, index, total) {
     const progressId = `progress-${Date.now()}-${index}`;
     
-    // 创建进度条
+    // 创建进度条元素
     const progressItem = document.createElement("div");
     progressItem.className = "progress-item";
     progressItem.id = progressId;
@@ -612,11 +728,12 @@ const UploadManager = {
     `;
     this.uploadProgress.appendChild(progressItem);
     
+    // 准备表单数据
     const formData = new FormData();
     formData.append("file", file);
     formData.append("collection_name", getCollection());
     
-    // 模拟进度更新
+    // 模拟进度更新（实际进度需要后端支持）
     let progress = 0;
     const progressInterval = setInterval(() => {
       progress += Math.random() * 15;
@@ -649,6 +766,12 @@ const UploadManager = {
     }
   },
   
+  /**
+   * 更新进度条显示
+   * @param {string} id - 进度条元素 ID
+   * @param {number} percent - 进度百分比
+   * @param {string} status - 状态文本
+   */
   updateProgress(id, percent, status) {
     const item = document.getElementById(id);
     if (!item) return;
@@ -661,12 +784,22 @@ const UploadManager = {
   }
 };
 
-// ---- KeyboardShortcuts (键盘快捷键) ----
+/**
+ * 键盘快捷键管理器
+ * 支持常用快捷键操作
+ */
 const KeyboardShortcuts = {
+  /**
+   * 初始化键盘快捷键
+   */
   init() {
     document.addEventListener("keydown", (e) => this.handleShortcut(e));
   },
   
+  /**
+   * 处理快捷键事件
+   * @param {KeyboardEvent} e - 键盘事件
+   */
   handleShortcut(e) {
     // Ctrl/Cmd + L: 清空对话
     if ((e.ctrlKey || e.metaKey) && e.key === "l") {
